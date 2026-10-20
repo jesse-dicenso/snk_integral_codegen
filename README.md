@@ -36,3 +36,19 @@ where `MSA`, `MSB` are strings corresponding to a multishell in `MULTISHELLS` (`
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## Citation
+
+If you use this program in your research, please cite the following:
+
+```bibtex
+@misc{dicenso2026data,
+      title={Data-Driven Optimization of Seminumerical Exchange for SIMD CPUs}, 
+      author={Jesse DiCenso and Henryk Laqua and Martin Head-Gordon},
+      year={2026},
+      eprint={2610.21075},
+      archivePrefix={arXiv},
+      primaryClass={physics.chem-ph},
+      url={https://arxiv.org/abs/2610.21075} 
+}
+```
