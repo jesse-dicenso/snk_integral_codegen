@@ -83,7 +83,7 @@ def generate_vrr(MSA, MSB, same_center, dname="SNK_CODEGEN", verbose=False):
             
         f.write("        const T tpi = 0.5 / v_p[prim];\n") 
         if not same_center:
-            if (LAmax > 0):
+            if (LAmax > 0 or LBmax > 0):  # P - B = P - A + A - B needs P - A too
                 f.write("        const T PAx = v_PAx[prim];\n")
                 f.write("        const T PAy = v_PAy[prim];\n")
                 f.write("        const T PAz = v_PAz[prim];\n")
@@ -249,7 +249,7 @@ def generate_hrr(MSA, MSB, same_center, dname="SNK_CODEGEN", verbose=False):
             
         f.write("        const T tpi = 0.5 / v_p[prim];\n") 
         if not same_center:
-            if (LAmax > 0):
+            if (LAmax > 0 or LBmax > 0):  # P - B = P - A + A - B needs P - A too
                 f.write("        const T PAx = v_PAx[prim];\n")
                 f.write("        const T PAy = v_PAy[prim];\n")
                 f.write("        const T PAz = v_PAz[prim];\n")
