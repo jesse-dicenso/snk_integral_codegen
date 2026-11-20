@@ -7,11 +7,45 @@ The output kernels are written as templates for mixed precision evaluation (FP32
 ## Requirements
 
 - Python (3.13.5 used originally)
-- SymPy  (1.13.3 used originally)
+- SymPy  (1.13.3 used originally), only for `verify.py`; generating code needs no packages
 
 ## Structure
 
-The code is structured as an executable `main.py` along with several helper files. `recurrences.py` contains the actual recurrence relations used to produce algebraic expressions for the 3c1e integrals. `codegen.py` uses these expressions, along with Common Subexpression Elimination (CSE) to produce optimal C++ code for the actual computation of 3c1e integrals. `codestrings.py` is a helper file for writing C++ code. `multishells.py` contains the multishell definitions, mapping strings to lists of L quantum numbers to be used as inputs to `codegen.generate_vrr()` and `codegen.generate_hrr()` (see below).
+The code is structured as an executable `main.py` along with several helper files. `dag.py` evaluates the recurrence relations of the 3c1e integrals as a graph of intermediates: it searches for the recurrence path (which center and cartesian direction to reduce for every intermediate) with the fewest floating point operations and schedules the intermediates for output. `codegen.py` writes this graph as C++ code. `codestrings.py` is a helper file for writing C++ code. `multishells.py` contains the multishell definitions, mapping strings to lists of L quantum numbers to be used as inputs to `codegen.generate_vrr()` and `codegen.generate_hrr()` (see below). `recurrences.py` unrolls the same recurrence relations symbolically with SymPy, without any optimization; `verify.py` uses it as the reference to check generated kernels. `benchmark/` measures the speed and the roundoff of generated kernels.
+
+## How the kernels are optimized
+
+- **Recurrence path.** Almost every intermediate of the Obara-Saika VRR can be formed in several ways (which center and which cartesian direction to reduce), and so can the intermediates of the HRR. `dag.PathSearch` minimizes the number of operations of the whole kernel over these choices (structured starting points, local search, random restarts). The differences `[a|b]^(N) - [a|b]^(N+1)` that the VRR needs are formed either by a subtraction or by the recurrence itself, whichever is cheaper. A few algebraic rewrites follow: common factors are taken out of the terms of a step, and the factor `1/2p` is applied once per difference instead of in every step that uses the difference where that saves multiplications. Only the choice of path and these rewrites differ from the plain recurrences: VRR kernels never use HRR steps, so each kernel keeps its numerical character.
+- **Cache blocking.** The arrays of the interface are `gb_size` elements apart. For a `gb_size` such as 128 this distance is a divisor of the 4096 bytes spanned by one way of the L1 cache, so the same gridpoint of all arrays maps to the same few cache sets, and a kernel that touches many arrays per gridpoint keeps evicting its own data. Kernels that touch enough bytes per gridpoint therefore process the gridpoints in blocks, contract the integrals of a block in a contiguous buffer on the stack and copy the buffer to the output arrays one array at a time. Whether this pays off depends on the precision, so some kernels contain both layouts and select one by `sizeof(T)`. The blocked HRR kernels keep their base integrals in such a buffer as well and do not use the `base_integrals` argument, which remains in the interface.
+- **Order of evaluation.** Intermediates are emitted next to their first use and the outputs are ordered to keep few values alive, which reduces spills of vector registers to the stack. Several such orders are tried and the one with the fewest live values is kept; this takes most of the time of generating a large kernel. Kernels that work in place store all results at the end of the loop body, because the compiler has to reload the inputs after every store to an array of the interface.
+
+The search effort and the layout are controlled by a few module variables at the top of `codegen.py`.
+
+## Verification
+
+```bash
+python verify.py                      # a default selection of kernels
+python verify.py vrr:F:D:0 hrr:G:G:1  # kind:MSA:MSB:same_center
+```
+
+`verify.py` generates kernels, executes the statements of the generated C++ in exact rational arithmetic for random inputs, and compares every integral with the SymPy recurrences of `recurrences.py`. Any difference is an error of the generated code rather than roundoff.
+
+## Benchmark
+
+```bash
+python benchmark/bench.py vrr:D:P:0 hrr:D:D:0 vrr:D:D:1          # kind:MSA:MSB:same_center
+python benchmark/bench.py --baseline 134c94b vrr:F:D:0 hrr:F:F:0  # compare with a git revision of the generator
+python benchmark/bench.py --baseline default --set BLOCK_POINTS=16 --gb 128,120 hrr:F:F:0
+```
+
+`benchmark/bench.py` generates the requested kernels, compiles them (`--cxx`, `--flags`) and reports for single and double precision
+
+- the time per gridpoint and primitive, in CPU cycles where Linux provides a cycle counter and in nanoseconds otherwise, and
+- the roundoff error: the same kernel is instantiated in quadruple precision and run on the same rounded inputs. Errors are relative to the largest value that the integral takes in the batch of gridpoints. This measures roundoff only; `verify.py` is what checks that a kernel computes the right integrals.
+
+With `--baseline` the kernels are compared with those in a directory, with those of another git revision of this generator, or with this generator at its default settings (`default`, for tuning the module variables of `codegen.py` with `--set NAME=VALUE`). `--gb` and `--nprim` take comma separated lists of batch sizes and numbers of primitive pairs; the timings of the larger kernels depend strongly on whether the batch size is a power of two (see cache blocking above). `--extreme` draws exponents from 1e-3 to 1e5 instead of valence-like ones.
+
+Timings are the minimum over many short runs, and the kernels that are compared take turns on the same buffers. They are still disturbed by other load on the machine, in particular on the other hardware thread of the same core: pin the benchmark to a quiet core with `--cpu N` and repeat a measurement that looks odd. The benchmark needs `g++` with libquadmath; `python benchmark/bench.py --help` lists all options.
 
 ## Usage
 
